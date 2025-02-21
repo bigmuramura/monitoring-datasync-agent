@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: DataSync Agent Status Monitoring (Python 3.12, arm64)
+
+Parameters:
+  DataSyncAgentArn:
+    Type: String
+    Description: ARN of the DataSync Agent to monitor
+    Default: arn:aws:datasync:ap-northeast-1:[YOUR_ACCOUNT_ID]:agent/[TARGET_AGENT_ID]
+
+Resources:
+  DataSyncAgentStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: DataSyncAgentStatusFunction
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Runtime: python3.12
+      MemorySize: 128
+      Timeout: 120
+      Environment:
+        Variables:
+          AGENT_ARN: !Ref DataSyncAgentArn
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - datasync:DescribeAgent
+                - cloudwatch:PutMetricData
+              Resource: '*'
+      Events:
+        ScheduledEvent:
+          Type: Schedule
+          Properties:
+            Schedule: 'cron(0 * * * ? *)'
+      Architectures:
+        - arm64
+
+  DataSyncAgentStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: DataSyncAgentOfflineAlarm
+      MetricName: DataSyncAgentStatus
+      Namespace: DataSync
+      Statistic: Minimum
+      Period: 3600
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: LessThanOrEqualToThreshold
+      TreatMissingData: breaching
+      Dimensions:
+        - Name: AgentArn
+          Value: !Ref DataSyncAgentArn
+      AlarmActions:
+        - !Ref SNSTopic
+      OKActions:
+        - !Ref SNSTopic
+
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: DataSyncAgentStatusNotification
+
+Outputs:
+  LambdaFunctionName:
+    Description: "Lambda Function Name"
+    Value: !Ref DataSyncAgentStatusFunction
+  SNSTopicArn:
+    Description: "SNS Topic ARN"
+    Value: !Ref SNSTopic
